@@ -3,6 +3,8 @@ import { ActivityBar } from './ActivityBar';
 import { FileExplorer } from '../FileExplorer';
 import { CompilerPanel } from '../CompilerPanel';
 import { DeployPanel } from '../deploy/DeployPanel';
+import { GitHubPlugin } from '../plugins/GitHubPlugin';
+import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -19,6 +21,8 @@ export function MainLayout({ children }: MainLayoutProps) {
           case 'explorer': return <FileExplorer />;
           case 'compiler': return <CompilerPanel />;
           case 'deploy': return <DeployPanel />;
+          case 'github': return <GitHubPlugin />;
+          case 'analysis': return <StaticAnalysisPlugin />;
           default: return (
             <div className="p-4 text-slate-500 text-sm text-center mt-10">
                 {activeView.charAt(0).toUpperCase() + activeView.slice(1)} Panel Placeholder

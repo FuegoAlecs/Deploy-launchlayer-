@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Files, Search, Box, Settings, PlayCircle } from 'lucide-react';
+import { Files, Search, Box, PlayCircle, Github, ShieldAlert, Settings } from 'lucide-react';
 
 interface ActivityBarProps {
   activeView: string;
@@ -12,6 +12,8 @@ export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
     { id: 'search', icon: Search, label: 'Search' },
     { id: 'compiler', icon: Box, label: 'Compiler' },
     { id: 'deploy', icon: PlayCircle, label: 'Deploy & Run' },
+    { id: 'github', icon: Github, label: 'GitHub' },
+    { id: 'analysis', icon: ShieldAlert, label: 'Static Analysis' },
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];
 
