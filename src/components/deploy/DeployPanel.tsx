@@ -1,14 +1,14 @@
 import React from 'react';
 import { useDeployment } from '../../store/useDeployment';
 import { useCompiler } from '../../store/useCompiler';
-import { Wallet, RefreshCw, AlertCircle } from 'lucide-react';
+import { Wallet, RefreshCw, AlertCircle, Server } from 'lucide-react'; // Added Server icon
 import { ethers, ContractFactory } from 'ethers';
 import { ContractInstance } from './ContractInstance';
 
 export function DeployPanel() {
   const {
       connectWallet, disconnectWallet, account, balance, chainId, isConnecting, error,
-      deployedContracts, addDeployedContract
+      deployedContracts, addDeployedContract, environment, setEnvironment
   } = useDeployment();
   const { compiledContracts } = useCompiler();
 
@@ -33,25 +33,36 @@ export function DeployPanel() {
 
       try {
           const contractData = compiledContracts[selectedContract];
-          const provider = new ethers.BrowserProvider(window.ethereum);
-          const signer = await provider.getSigner();
 
-          const factory = new ContractFactory(contractData.abi, contractData.bytecode, signer);
+          let address: string;
 
-          // Resolve args
-          const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
-          const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
+          if (environment === 'injected') {
+              const provider = new ethers.BrowserProvider(window.ethereum);
+              const signer = await provider.getSigner();
 
-          const contract = await factory.deploy(...args);
-          await contract.waitForDeployment();
+              const factory = new ContractFactory(contractData.abi, contractData.bytecode, signer);
 
-          const address = await contract.getAddress();
+              // Resolve args
+              const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
+              const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
+
+              const contract = await factory.deploy(...args);
+              await contract.waitForDeployment();
+
+              address = await contract.getAddress();
+          } else {
+              // VM Simulation
+              await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
+              // Generate random address
+              address = '0x' + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+          }
 
           addDeployedContract({
               address,
               name: contractData.name,
               abi: contractData.abi,
-              networkId: Number(chainId)
+              networkId: Number(chainId),
+              type: environment
           });
 
       } catch (err: any) {
@@ -68,7 +79,16 @@ export function DeployPanel() {
         <div className="p-4 border-b border-slate-800 space-y-4">
             <h2 className="text-sm font-bold uppercase tracking-wider mb-2">Environment</h2>
 
-            {!account ? (
+            <select
+                value={environment}
+                onChange={(e) => setEnvironment(e.target.value as 'injected' | 'vm')}
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-slate-300 focus:border-blue-500 outline-none mb-2"
+            >
+                <option value="injected">Injected Provider - MetaMask</option>
+                <option value="vm">JavaScript VM (Simulated)</option>
+            </select>
+
+            {environment === 'injected' && !account ? (
                 <button
                     onClick={connectWallet}
                     disabled={isConnecting}
@@ -82,10 +102,12 @@ export function DeployPanel() {
                     <div className="flex justify-between items-center">
                         <span className="text-slate-500">Account</span>
                         <div className="flex items-center gap-2">
-                            <span className="text-blue-400 font-mono" title={account}>{account.slice(0, 6)}...{account.slice(-4)}</span>
-                            <button onClick={disconnectWallet} className="text-slate-600 hover:text-red-400">
-                                <AlertCircle size={12} />
-                            </button>
+                            <span className="text-blue-400 font-mono" title={account || ''}>{account?.slice(0, 6)}...{account?.slice(-4)}</span>
+                            {environment === 'injected' && (
+                                <button onClick={disconnectWallet} className="text-slate-600 hover:text-red-400">
+                                    <AlertCircle size={12} />
+                                </button>
+                            )}
                         </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -96,6 +118,12 @@ export function DeployPanel() {
                         <span className="text-slate-500">Chain ID</span>
                         <span className="text-slate-300">{chainId}</span>
                     </div>
+                    {environment === 'vm' && (
+                         <div className="flex justify-end text-orange-400 flex-row items-center gap-1">
+                             <Server size={10} />
+                             <span>Simulated</span>
+                         </div>
+                    )}
                 </div>
             )}
 

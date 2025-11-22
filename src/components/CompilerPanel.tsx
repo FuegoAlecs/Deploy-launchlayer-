@@ -10,17 +10,15 @@ export function CompilerPanel() {
 
   React.useEffect(() => {
       // Initialize worker
-      const w = new Worker(new URL('../workers/solc.worker.ts', import.meta.url), { type: 'module' });
+      // Removing { type: 'module' } to allow importScripts in the worker
+      const w = new Worker(new URL('../workers/solc.worker.ts', import.meta.url));
+
       w.onmessage = (e) => {
           const { type, payload } = e.data;
           if (type === 'version-loaded') {
               console.log('Compiler loaded:', payload.version);
           } else if (type === 'compile-result') {
               setCompiling(false);
-              // Handle compilation result
-              if (payload.errors) {
-                  // Filter out only errors/warnings, sometimes solc returns just artifacts
-              }
               setCompilationResult(activeFile || 'unknown', payload);
           } else if (type === 'error') {
               setCompiling(false);

@@ -6,6 +6,7 @@ interface DeployedContract {
   name: string;
   abi: any[];
   networkId: number;
+  type: 'injected' | 'vm'; // Added type
 }
 
 interface DeploymentState {
@@ -17,7 +18,9 @@ interface DeploymentState {
   isConnecting: boolean;
   error: string | null;
   deployedContracts: DeployedContract[];
+  environment: 'injected' | 'vm'; // Added environment
 
+  setEnvironment: (env: 'injected' | 'vm') => void; // Added setter
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
   addDeployedContract: (contract: DeployedContract) => void;
@@ -34,6 +37,24 @@ export const useDeployment = create<DeploymentState>((set, get) => ({
   isConnecting: false,
   error: null,
   deployedContracts: [],
+  environment: 'injected',
+
+  setEnvironment: (env) => {
+      set({ environment: env });
+      if (env === 'vm') {
+          // Setup mock VM state
+          set({
+              account: '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4', // Standard Remix test account
+              balance: '100.0',
+              chainId: 1337,
+              provider: null,
+              signer: null,
+              error: null
+          });
+      } else {
+          get().disconnectWallet();
+      }
+  },
 
   connectWallet: async () => {
     set({ isConnecting: true, error: null });

@@ -8,9 +8,10 @@ interface ContractInstanceProps {
     address: string;
     abi: any[];
     name: string;
+    type?: 'injected' | 'vm';
 }
 
-export function ContractInstance({ address, abi, name }: ContractInstanceProps) {
+export function ContractInstance({ address, abi, name, type = 'injected' }: ContractInstanceProps) {
     const { provider, signer } = useDeployment();
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [contract, setContract] = React.useState<Contract | null>(null);
@@ -19,30 +20,43 @@ export function ContractInstance({ address, abi, name }: ContractInstanceProps) 
     const [isLoading, setIsLoading] = React.useState<Record<string, boolean>>({});
 
     React.useEffect(() => {
-        if (provider && address && abi) {
-            // Use signer if available for write ops, else provider
+        if (type === 'injected' && provider && address && abi) {
             const instance = new Contract(address, abi, signer || provider);
             setContract(instance);
         }
-    }, [provider, signer, address, abi]);
+    }, [provider, signer, address, abi, type]);
 
-    const handleInteraction = async (funcName: string, type: 'view' | 'pure' | 'nonpayable' | 'payable', inputsArg: any[]) => {
-        if (!contract) return;
-
+    const handleInteraction = async (funcName: string, funcType: 'view' | 'pure' | 'nonpayable' | 'payable', inputsArg: any[]) => {
         setIsLoading(prev => ({ ...prev, [funcName]: true }));
+
         try {
-            // Gather args
+             // Gather args
             const args = inputsArg.map(input => inputs[`${funcName}_${input.name}`] || '');
 
-            let result: any;
-            if (type === 'view' || type === 'pure') {
-                result = await contract[funcName](...args);
-                setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+            if (type === 'vm') {
+                // Simulated Interaction
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                if (funcType === 'view' || funcType === 'pure') {
+                    // Return dummy data based on return type if possible, or just a string
+                    setOutputs(prev => ({ ...prev, [funcName]: `[Simulated Result]` }));
+                } else {
+                     setOutputs(prev => ({ ...prev, [funcName]: `Tx Mined (Simulated): 0x${Math.random().toString(16).substr(2, 64)}` }));
+                }
             } else {
-                const tx = await contract[funcName](...args);
-                setOutputs(prev => ({ ...prev, [funcName]: `Tx sent: ${tx.hash}` }));
-                await tx.wait();
-                setOutputs(prev => ({ ...prev, [funcName]: `Confirmed: ${tx.hash}` }));
+                // Real Interaction
+                if (!contract) throw new Error("Contract not connected");
+
+                let result: any;
+                if (funcType === 'view' || funcType === 'pure') {
+                    result = await contract[funcName](...args);
+                    setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+                } else {
+                    const tx = await contract[funcName](...args);
+                    setOutputs(prev => ({ ...prev, [funcName]: `Tx sent: ${tx.hash}` }));
+                    await tx.wait();
+                    setOutputs(prev => ({ ...prev, [funcName]: `Confirmed: ${tx.hash}` }));
+                }
             }
         } catch (err: any) {
             console.error(err);
