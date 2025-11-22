@@ -1,11 +1,11 @@
 import React from 'react';
 import { Play } from 'lucide-react';
 import { useFileSystem, FileEntry } from '../store/useFileSystem';
+import { useCompiler } from '../store/useCompiler';
 
 export function CompilerPanel() {
   const { files, activeFile } = useFileSystem();
-  const [isCompiling, setIsCompiling] = React.useState(false);
-  const [compilerOutput, setCompilerOutput] = React.useState<any>(null);
+  const { compiledContracts, errors, isCompiling, setCompiling, setCompilationResult, setErrors } = useCompiler();
   const [worker, setWorker] = React.useState<Worker | null>(null);
 
   React.useEffect(() => {
@@ -16,11 +16,15 @@ export function CompilerPanel() {
           if (type === 'version-loaded') {
               console.log('Compiler loaded:', payload.version);
           } else if (type === 'compile-result') {
-              setIsCompiling(false);
-              setCompilerOutput(payload);
+              setCompiling(false);
+              // Handle compilation result
+              if (payload.errors) {
+                  // Filter out only errors/warnings, sometimes solc returns just artifacts
+              }
+              setCompilationResult(activeFile || 'unknown', payload);
           } else if (type === 'error') {
-              setIsCompiling(false);
-              console.error('Compiler Error:', payload);
+              setCompiling(false);
+              setErrors([{ severity: 'error', formattedMessage: payload }]);
           }
       };
 
@@ -33,12 +37,12 @@ export function CompilerPanel() {
 
       setWorker(w);
       return () => w.terminate();
-  }, []);
+  }, [setCompiling, setCompilationResult, setErrors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCompile = () => {
       if (!worker || !activeFile) return;
 
-      setIsCompiling(true);
+      setCompiling(true);
       const sources: Record<string, { content: string }> = {};
 
       // Gather sources
@@ -84,44 +88,38 @@ export function CompilerPanel() {
         </div>
 
         <div className="flex-1 overflow-auto p-4">
-            {compilerOutput && (
-                <div className="space-y-4">
-                    {compilerOutput.errors && (
-                        <div className="space-y-2">
-                            {compilerOutput.errors.map((err: any, idx: number) => (
-                                <div key={idx} className={`p-2 rounded text-xs border ${err.severity === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'}`}>
-                                    <pre className="whitespace-pre-wrap font-mono">{err.formattedMessage}</pre>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+             <div className="space-y-4">
+                {errors && errors.length > 0 && (
+                    <div className="space-y-2">
+                        {errors.map((err: any, idx: number) => (
+                            <div key={idx} className={`p-2 rounded text-xs border ${err.severity === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'}`}>
+                                <pre className="whitespace-pre-wrap font-mono">{err.formattedMessage}</pre>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
-                    {!compilerOutput.errors && compilerOutput.contracts && (
-                         <div className="p-3 bg-green-500/10 border border-green-500/30 rounded text-green-400 text-sm">
-                             Compilation Successful!
-                         </div>
-                    )}
+                {Object.keys(compiledContracts).length > 0 && errors.length === 0 && (
+                     <div className="p-3 bg-green-500/10 border border-green-500/30 rounded text-green-400 text-sm">
+                         Compilation Successful!
+                     </div>
+                )}
 
-                    {/* Contract List */}
-                    {compilerOutput.contracts && Object.entries(compilerOutput.contracts).map(([fileName, contracts]: [string, any]) => (
-                        <div key={fileName}>
-                            {Object.entries(contracts).map(([contractName]: [string, any]) => (
-                                <div key={contractName} className="p-3 bg-slate-900 border border-slate-800 rounded mb-2">
-                                    <div className="font-bold text-slate-200 mb-2">{contractName}</div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
-                                            Bytecode
-                                        </button>
-                                        <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
-                                            ABI
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                {/* Contract List */}
+                {Object.entries(compiledContracts).map(([id, contract]) => (
+                     <div key={id} className="p-3 bg-slate-900 border border-slate-800 rounded mb-2">
+                        <div className="font-bold text-slate-200 mb-2">{contract.name}</div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
+                                Bytecode
+                            </button>
+                            <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
+                                ABI
+                            </button>
                         </div>
-                    ))}
-                </div>
-            )}
+                    </div>
+                ))}
+            </div>
         </div>
     </div>
   );

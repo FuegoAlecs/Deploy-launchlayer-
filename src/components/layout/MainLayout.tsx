@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityBar } from './ActivityBar';
 import { FileExplorer } from '../FileExplorer';
 import { CompilerPanel } from '../CompilerPanel';
+import { DeployPanel } from '../deploy/DeployPanel';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -17,6 +18,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       switch (activeView) {
           case 'explorer': return <FileExplorer />;
           case 'compiler': return <CompilerPanel />;
+          case 'deploy': return <DeployPanel />;
           default: return (
             <div className="p-4 text-slate-500 text-sm text-center mt-10">
                 {activeView.charAt(0).toUpperCase() + activeView.slice(1)} Panel Placeholder
@@ -34,7 +36,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
       {/* Side Panel - Desktop */}
       <div className={clsx(
-        "hidden md:flex flex-col w-72 h-full border-r border-slate-800 bg-slate-900/40 glass-panel transition-all duration-300",
+        "hidden md:flex flex-col w-80 h-full border-r border-slate-800 bg-slate-900/40 glass-panel transition-all duration-300",
         activeView ? "opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-full overflow-hidden"
       )}>
         {renderSidePanel()}
