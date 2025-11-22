@@ -3,7 +3,11 @@ import { useFileSystem, FileEntry } from '../store/useFileSystem';
 import { FileCode, Folder, Trash2, FilePlus, FolderPlus } from 'lucide-react';
 import { clsx } from 'clsx';
 
-export function FileExplorer() {
+interface FileExplorerProps {
+  onFileSelect?: () => void;
+}
+
+export function FileExplorer({ onFileSelect }: FileExplorerProps) {
   const { files, activeFile, selectFile, createFile, deleteFile } = useFileSystem();
 
   const [newItemName, setNewItemName] = React.useState('');
@@ -74,7 +78,10 @@ export function FileExplorer() {
                 : "hover:bg-slate-800/50 text-slate-400 hover:text-slate-200"
             )}
             onClick={() => {
-                if (file.type === 'file') selectFile(file.path);
+                if (file.type === 'file') {
+                    selectFile(file.path);
+                    onFileSelect?.();
+                }
             }}
           >
             {file.type === 'directory' ? (

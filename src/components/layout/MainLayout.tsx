@@ -5,6 +5,9 @@ import { CompilerPanel } from '../CompilerPanel';
 import { DeployPanel } from '../deploy/DeployPanel';
 import { GitHubPlugin } from '../plugins/GitHubPlugin';
 import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
+import { SettingsPanel } from '../settings/SettingsPanel';
+import { EchoButton } from '../echo/EchoButton';
+import { EchoChat } from '../echo/EchoChat';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -16,13 +19,14 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [activeView, setActiveView] = React.useState('explorer');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
-  const renderSidePanel = () => {
+  const renderSidePanel = (isMobile = false) => {
       switch (activeView) {
-          case 'explorer': return <FileExplorer />;
+          case 'explorer': return <FileExplorer onFileSelect={isMobile ? () => setIsMobileMenuOpen(false) : undefined} />;
           case 'compiler': return <CompilerPanel />;
           case 'deploy': return <DeployPanel />;
           case 'github': return <GitHubPlugin />;
           case 'analysis': return <StaticAnalysisPlugin />;
+          case 'settings': return <SettingsPanel />;
           default: return (
             <div className="p-4 text-slate-500 text-sm text-center mt-10">
                 {activeView.charAt(0).toUpperCase() + activeView.slice(1)} Panel Placeholder
@@ -43,7 +47,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         "hidden md:flex flex-col w-80 h-full border-r border-slate-800 bg-slate-900/40 glass-panel transition-all duration-300",
         activeView ? "opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-full overflow-hidden"
       )}>
-        {renderSidePanel()}
+        {renderSidePanel(false)}
       </div>
 
       {/* Main Content Area */}
@@ -64,7 +68,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 <div className="flex h-full">
                     <ActivityBar activeView={activeView} onViewChange={setActiveView} />
                     <div className="flex-1 border-l border-slate-800 p-2 overflow-auto">
-                         {renderSidePanel()}
+                         {renderSidePanel(true)}
                     </div>
                 </div>
             </div>
@@ -73,6 +77,8 @@ export function MainLayout({ children }: MainLayoutProps) {
         {/* Editor Area */}
         <main className="flex-1 relative bg-slate-950/50">
             {children}
+            <EchoButton />
+            <EchoChat />
         </main>
 
         {/* Bottom Panel (Terminal) */}

@@ -20,6 +20,30 @@ export function CompilerPanel() {
           } else if (type === 'compile-result') {
               setCompiling(false);
               setCompilationResult(activeFile || 'unknown', payload);
+
+              // Extract and save artifacts
+              if (payload.contracts) {
+                // We access the store directly to avoid stale closures in callback if using hook state
+                const { createFile } = useFileSystem.getState();
+
+                Object.entries(payload.contracts).forEach(([_fName, fileContracts]: [string, any]) => {
+                     // Ensure artifacts directory exists
+                     // (We can't easily check existence sync here without async await, so we just attempt create)
+                     // Actually, best to iterate and create files.
+
+                     Object.entries(fileContracts).forEach(([contractName, contractData]: [string, any]) => {
+                         const abi = JSON.stringify(contractData.abi, null, 2);
+                         const bytecode = contractData.evm.bytecode.object;
+
+                         // Create artifacts folder structure
+                         const basePath = '/artifacts';
+                         // We can fire and forget these creations
+                         createFile(`${basePath}/${contractName}.json`, abi, 'file');
+                         createFile(`${basePath}/${contractName}.bin`, bytecode, 'file');
+                     });
+                });
+              }
+
           } else if (type === 'error') {
               setCompiling(false);
               setErrors([{ severity: 'error', formattedMessage: payload }]);

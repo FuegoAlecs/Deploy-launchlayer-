@@ -2,8 +2,10 @@ import { useEffect } from 'react';
 import { MainLayout } from './components/layout/MainLayout';
 import { CodeEditor } from './components/editor/CodeEditor';
 import { useFileSystem } from './store/useFileSystem';
+import { AuthProvider } from './context/AuthContext';
+import { BetaGate } from './components/auth/BetaGate';
 
-function App() {
+function AppContent() {
   const { initialize, isLoading } = useFileSystem();
 
   useEffect(() => {
@@ -22,9 +24,19 @@ function App() {
   }
 
   return (
-    <MainLayout>
-      <CodeEditor />
-    </MainLayout>
+    <BetaGate>
+      <MainLayout>
+        <CodeEditor />
+      </MainLayout>
+    </BetaGate>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
