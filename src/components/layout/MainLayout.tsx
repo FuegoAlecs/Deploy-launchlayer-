@@ -5,6 +5,8 @@ import { CompilerPanel } from '../CompilerPanel';
 import { DeployPanel } from '../deploy/DeployPanel';
 import { GitHubPlugin } from '../plugins/GitHubPlugin';
 import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
+import { SettingsPanel } from '../settings/SettingsPanel';
+import { EchoChat } from '../echo/EchoChat';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -16,6 +18,12 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [activeView, setActiveView] = React.useState('explorer');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
+  React.useEffect(() => {
+      const handleFileSelected = () => setIsMobileMenuOpen(false);
+      window.addEventListener('file-selected', handleFileSelected);
+      return () => window.removeEventListener('file-selected', handleFileSelected);
+  }, []);
+
   const renderSidePanel = () => {
       switch (activeView) {
           case 'explorer': return <FileExplorer />;
@@ -23,6 +31,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           case 'deploy': return <DeployPanel />;
           case 'github': return <GitHubPlugin />;
           case 'analysis': return <StaticAnalysisPlugin />;
+          case 'settings': return <SettingsPanel />;
           default: return (
             <div className="p-4 text-slate-500 text-sm text-center mt-10">
                 {activeView.charAt(0).toUpperCase() + activeView.slice(1)} Panel Placeholder
@@ -87,6 +96,9 @@ export function MainLayout({ children }: MainLayoutProps) {
             </div>
         </div>
       </div>
+
+      {/* Echo AI Chat Overlay */}
+      <EchoChat />
     </div>
   );
 }

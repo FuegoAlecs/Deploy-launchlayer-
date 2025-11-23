@@ -4,7 +4,7 @@ import { useFileSystem, FileEntry } from '../store/useFileSystem';
 import { useCompiler } from '../store/useCompiler';
 
 export function CompilerPanel() {
-  const { files, activeFile } = useFileSystem();
+  const { files, activeFile, createFile, updateFileContent } = useFileSystem();
   const { compiledContracts, errors, isCompiling, setCompiling, setCompilationResult, setErrors } = useCompiler();
   const [worker, setWorker] = React.useState<Worker | null>(null);
 
@@ -20,6 +20,37 @@ export function CompilerPanel() {
           } else if (type === 'compile-result') {
               setCompiling(false);
               setCompilationResult(activeFile || 'unknown', payload);
+
+              // Save artifacts automatically
+              try {
+                  const fileName = activeFile?.split('/').pop()?.split('.')[0] || 'Contract';
+                  // Create 'artifacts' directory if it doesn't exist - assuming basic file system structure
+                  // For now, just put it in root or checks if we can make folders.
+                  // The current system seems to flat list or simple path.
+
+                  Object.entries(payload).forEach(([, contract]: [string, any]) => {
+                      const artifactContent = JSON.stringify({
+                          abi: contract.abi,
+                          bytecode: contract.evm.bytecode.object
+                      }, null, 2);
+
+                      const artifactPath = `/artifacts/${contract.name || fileName}.json`;
+
+                      // Check if file exists to update or create
+                      // Since useFileSystem has files object, we can check keys
+                      // But `createFile` usually handles overwrite or we use updateFileContent
+
+                      // Simple approach: Try to create/update
+                      if (files[artifactPath]) {
+                           updateFileContent(artifactPath, artifactContent);
+                      } else {
+                           createFile(artifactPath, artifactContent, 'file');
+                      }
+                  });
+              } catch (err) {
+                  console.error("Failed to save artifacts:", err);
+              }
+
           } else if (type === 'error') {
               setCompiling(false);
               setErrors([{ severity: 'error', formattedMessage: payload }]);
@@ -107,11 +138,22 @@ export function CompilerPanel() {
                 {Object.entries(compiledContracts).map(([id, contract]) => (
                      <div key={id} className="p-3 bg-slate-900 border border-slate-800 rounded mb-2">
                         <div className="font-bold text-slate-200 mb-2">{contract.name}</div>
+                        <div className="text-xs text-slate-500 mb-2">
+                            Artifacts saved to /artifacts/{contract.name}.json
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
-                            <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
+                            <button
+                                onClick={() => navigator.clipboard.writeText((contract as any).evm.bytecode.object)}
+                                className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left truncate"
+                                title="Copy Bytecode"
+                            >
                                 Bytecode
                             </button>
-                            <button className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left">
+                            <button
+                                onClick={() => navigator.clipboard.writeText(JSON.stringify(contract.abi))}
+                                className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-700 text-left truncate"
+                                title="Copy ABI"
+                            >
                                 ABI
                             </button>
                         </div>
