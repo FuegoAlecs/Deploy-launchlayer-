@@ -2,6 +2,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { useFileSystem } from '../store/useFileSystem';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -10,6 +11,7 @@ export interface Message {
 
 export function useEcho() {
   const { user } = useAuth();
+  const { activeFile, files } = useFileSystem();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,42 +25,72 @@ export function useEcho() {
     setIsLoading(true);
     setError(null);
 
-    // Add user message to state immediately
     const userMessage: Message = { role: 'user', content };
     setMessages(prev => [...prev, userMessage]);
 
-    try {
-      // 1. Call the Edge Function
-      // The prompt mentions: function for the ai agent is stored in that Supabase Edge Functions as ai-review-deployment
-      // Assuming the function expects { messages: [...] } in the body
+    // Prepare context: Get active file content if available
+    let fileContext = '';
+    if (activeFile && files[activeFile]) {
+        fileContext = `\n\nCurrent File (${activeFile}):\n\`\`\`\n${files[activeFile].content}\n\`\`\``;
+    }
 
-      const { data, error: fnError } = await supabase.functions.invoke('ai-review-deployment', {
-        body: { messages: [...messages, userMessage] } // Send full history? Or just last? Usually full history for context.
+    try {
+      // Use 'ide-debug-contract' as discovered via API inspection
+      // It returns a stream (text/event-stream)
+      const response = await supabase.functions.invoke('ide-debug-contract', {
+        body: {
+            messages: [...messages, userMessage],
+            code: fileContext ? files[activeFile!]?.content : undefined // Send code separately if the function expects it
+        },
+        responseType: 'stream' // Important for streaming
       });
 
-      if (fnError) {
-        console.error('Echo Function Error:', fnError);
-        throw new Error('Failed to contact Echo. Please try again.');
+      if (response.error) {
+          throw new Error(response.error.message || 'Failed to contact Echo.');
       }
 
-      // Assuming the function returns { content: "AI Response", ... } or similar
-      // If it returns a stream, we need to handle that. For now assuming JSON response.
-      // Note: The prompt says "The function handles the call via groq...".
-      // Let's assume the response structure is standard: { response: "text" } or { message: { content: "text" } }
-
-      // I will assume data.response or data.content or data.choices[0].message.content
-      // Let's start with a safe extraction
-      const aiContent = data?.response || data?.content || data?.message?.content || JSON.stringify(data);
-
-      const assistantMessage: Message = { role: 'assistant', content: aiContent };
+      // Initialize assistant message
+      const assistantMessage: Message = { role: 'assistant', content: '' };
       setMessages(prev => [...prev, assistantMessage]);
 
-      // 2. Log the interaction (Fire and forget)
+      const reader = response.data.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let accumulatedContent = '';
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value, { stream: true });
+
+        // The stream format depends on how the Edge Function sends it.
+        // It might be raw text or SSE (data: ...).
+        // Common generic stream: just append text.
+        // SSE: Parse "data: " prefix.
+
+        // Assuming raw text or basic SSE structure. Let's try simple append first.
+        // If it looks like SSE, we might need parsing.
+
+        // Simple heuristic: If it's pure text, append.
+        accumulatedContent += chunkValue;
+
+        // Update state progressively
+        setMessages(prev => {
+            const newHistory = [...prev];
+            const lastMsg = newHistory[newHistory.length - 1];
+            if (lastMsg.role === 'assistant') {
+                lastMsg.content = accumulatedContent;
+            }
+            return newHistory;
+        });
+      }
+
+      // Log interaction
       if (user) {
           supabase.from('echo_interactions').insert({
               user_id: user.id,
-              messages: [...messages, userMessage, assistantMessage],
-              response: aiContent
+              messages: [...messages, userMessage, { role: 'assistant', content: accumulatedContent }],
+              response: accumulatedContent
           }).then(({ error }) => {
               if (error) console.warn('Failed to log Echo interaction:', error);
           });
@@ -67,12 +99,10 @@ export function useEcho() {
     } catch (err: any) {
       console.error('Echo Error:', err);
       setError(err.message || 'An unexpected error occurred.');
-      // Remove the user message if failed? Or keep it and show error?
-      // Keeping it is better UX, just show error toast/state.
     } finally {
       setIsLoading(false);
     }
-  }, [user, messages]);
+  }, [user, messages, activeFile, files]);
 
   const clearHistory = useCallback(() => {
     setMessages([]);
