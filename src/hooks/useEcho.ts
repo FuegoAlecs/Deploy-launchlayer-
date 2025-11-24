@@ -43,7 +43,7 @@ export function useEcho() {
             code: fileContext ? files[activeFile!]?.content : undefined // Send code separately if the function expects it
         },
         responseType: 'stream' // Important for streaming
-      });
+      } as any);
 
       if (response.error) {
           throw new Error(response.error.message || 'Failed to contact Echo.');
