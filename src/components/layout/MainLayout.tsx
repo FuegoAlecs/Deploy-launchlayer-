@@ -4,9 +4,9 @@ import { FileExplorer } from '../FileExplorer';
 import { CompilerPanel } from '../CompilerPanel';
 import { DeployPanel } from '../deploy/DeployPanel';
 import { GitHubPlugin } from '../plugins/GitHubPlugin';
-import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
+// import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
+import { LinterPanel } from '../plugins/LinterPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
-import { EchoChat } from '../echo/EchoChat';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -30,7 +30,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           case 'compiler': return <CompilerPanel />;
           case 'deploy': return <DeployPanel />;
           case 'github': return <GitHubPlugin />;
-          case 'analysis': return <StaticAnalysisPlugin />;
+          case 'analysis': return <LinterPanel />;
           case 'settings': return <SettingsPanel />;
           default: return (
             <div className="p-4 text-slate-500 text-sm text-center mt-10">
@@ -97,8 +97,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         </div>
       </div>
 
-      {/* Echo AI Chat Overlay */}
-      <EchoChat />
     </div>
   );
 }

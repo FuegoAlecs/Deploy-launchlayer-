@@ -1,6 +1,6 @@
 import React from 'react';
 import { useFileSystem, FileEntry } from '../store/useFileSystem';
-import { FileCode, Folder, Trash2, FilePlus, FolderPlus } from 'lucide-react';
+import { FileCode, Folder, Trash2, FilePlus, FolderPlus, Download } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export function FileExplorer() {
@@ -25,6 +25,45 @@ export function FileExplorer() {
       await createFile(path, '', isCreating || 'file');
       setIsCreating(null);
       setNewItemName('');
+  };
+
+  const handleFlatten = async (filePath: string) => {
+    // 1. Get file content
+    const rootContent = files[filePath]?.content || '';
+
+    // 2. Simple regex based flattening (MVP)
+    // In a real implementation, this needs AST parsing to handle imports correctly
+    // and deduplicate them. For now, we will just look for 'import "..."'
+    // and try to replace it with the content of that file if it exists in our store.
+
+    const importRegex = /import\s+["']([^"']+)["'];/g;
+    let flatContent = rootContent;
+    let match;
+
+    // Naive one-level flattening for MVP
+    // A robust solution needs recursion and cycle detection
+    while ((match = importRegex.exec(rootContent)) !== null) {
+        const importStatement = match[0];
+        const importPath = match[1];
+
+        // Try to find the file in our store
+        // Imports might be relative or absolute. This is a simplified check.
+        // We assume flat structure or exact match for now.
+        const fileKey = Object.keys(files).find(key => key.includes(importPath));
+
+        if (fileKey && files[fileKey]) {
+            const importedContent = files[fileKey].content;
+            // Remove pragmas from imported content to avoid duplicates
+            const cleanedContent = importedContent.replace(/pragma solidity .?.*;/g, '// pragma solidity ... (flattened)');
+            flatContent = flatContent.replace(importStatement, `// Source: ${importPath}\n${cleanedContent}`);
+        } else {
+            flatContent = flatContent.replace(importStatement, `// Error: Could not resolve ${importPath}`);
+        }
+    }
+
+    // Create new file
+    const newPath = filePath.replace('.sol', '_flat.sol');
+    await createFile(newPath, flatContent, 'file');
   };
 
   return (
@@ -90,12 +129,24 @@ export function FileExplorer() {
 
             <span className="truncate flex-1">{file.path}</span>
 
-            <button
-                onClick={(e) => { e.stopPropagation(); deleteFile(file.path); }}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 hover:text-red-400 rounded transition-all"
-            >
-                <Trash2 size={12} />
-            </button>
+            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                {file.type === 'file' && file.path.endsWith('.sol') && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleFlatten(file.path); }}
+                        className="p-1 hover:bg-blue-500/20 hover:text-blue-400 rounded mr-1"
+                        title="Flatten"
+                    >
+                        <Download size={12} />
+                    </button>
+                )}
+                <button
+                    onClick={(e) => { e.stopPropagation(); deleteFile(file.path); }}
+                    className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded"
+                    title="Delete"
+                >
+                    <Trash2 size={12} />
+                </button>
+            </div>
           </div>
         ))}
       </div>

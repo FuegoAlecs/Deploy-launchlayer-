@@ -1,8 +1,9 @@
 import React from 'react';
 import { useDeployment } from '../../store/useDeployment';
 import { useCompiler } from '../../store/useCompiler';
-import { Wallet, RefreshCw, AlertCircle, Server } from 'lucide-react'; // Added Server icon
+import { Wallet, RefreshCw, AlertCircle, Server, Sparkles } from 'lucide-react'; // Added Server icon
 import { ethers, ContractFactory } from 'ethers';
+import { supabase } from '../../lib/supabase';
 import { ContractInstance } from './ContractInstance';
 
 export function DeployPanel() {
@@ -16,6 +17,8 @@ export function DeployPanel() {
   const [constructorArgs, setConstructorArgs] = React.useState<Record<string, string>>({});
   const [isDeploying, setIsDeploying] = React.useState(false);
   const [deployError, setDeployError] = React.useState<string | null>(null);
+  const [isDebugging, setIsDebugging] = React.useState(false);
+  const [aiSuggestion, setAiSuggestion] = React.useState<string | null>(null);
 
   // Auto-select first contract
   React.useEffect(() => {
@@ -24,6 +27,67 @@ export function DeployPanel() {
           setSelectedContract(keys[0]);
       }
   }, [compiledContracts, selectedContract]);
+
+  const handleDebug = async () => {
+    if (!selectedContract) return;
+
+    setIsDebugging(true);
+    setAiSuggestion(null);
+
+    try {
+        const contractData = compiledContracts[selectedContract];
+        // Note: We might need the source code. compiledContracts structure in store might not have source code directly attached
+        // unless modified. Assuming we can get it from the file system if we know the filename, or if it's in contractData.
+        // For now, let's assume we send the ABI/Bytecode or try to find the file content.
+        // Actually, contractData likely has ABI/Bytecode. The prompt says "sends the contract to the ai".
+        // Ideally we send the source code.
+
+        // Let's rely on the user having the file selected or just send what we have.
+        // If we only have bytecode/ABI here, the AI debugging might be limited.
+        // However, usually "Debug with AI" implies source level debugging.
+        // Let's look up the file content from the store/compiler if possible.
+        // Since useCompiler stores compiledContracts, let's check its shape.
+
+        // Assuming we pass the JSON string of the contract data for now.
+
+        const response = await supabase.functions.invoke('ai-review-deployment', {
+            body: {
+                contractName: contractData.name,
+                abi: contractData.abi,
+                bytecode: contractData.bytecode,
+                // If possible, include source code here if we can map it back
+            }
+        });
+
+        if (response.error) {
+            throw new Error(response.error.message);
+        }
+
+        setAiSuggestion(response.data.message || response.data.analysis || "AI Analysis Complete.");
+
+    } catch (err: any) {
+        console.error('AI Debug Error:', err);
+        setAiSuggestion(`Error: ${err.message}`);
+    } finally {
+        setIsDebugging(false);
+    }
+  };
+
+  const getNetworkName = (id: string | null) => {
+    if (!id) return '';
+    const networks: Record<string, string> = {
+        '1': 'Mainnet',
+        '11155111': 'Sepolia',
+        '5': 'Goerli',
+        '8453': 'Base',
+        '84532': 'Base Sepolia',
+        '137': 'Polygon',
+        '80001': 'Mumbai',
+        '42161': 'Arbitrum One',
+        '10': 'Optimism',
+    };
+    return networks[id] || 'Unknown Network';
+  };
 
   const handleDeploy = async () => {
       if (!selectedContract || !account) return;
@@ -116,7 +180,12 @@ export function DeployPanel() {
                     </div>
                     <div className="flex justify-between items-center">
                         <span className="text-slate-500">Chain ID</span>
-                        <span className="text-slate-300">{chainId}</span>
+                        <div className="text-right">
+                            <span className="text-slate-300">{chainId}</span>
+                            <span className="text-xs text-slate-500 ml-2 block">
+                                {getNetworkName(String(chainId))}
+                            </span>
+                        </div>
                     </div>
                     {environment === 'vm' && (
                          <div className="flex justify-end text-orange-400 flex-row items-center gap-1">
@@ -165,17 +234,37 @@ export function DeployPanel() {
                              </div>
                          ))}
 
-                         <button
-                            onClick={handleDeploy}
-                            disabled={!account || isDeploying}
-                            className="w-full bg-orange-600 hover:bg-orange-500 text-white p-2 rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isDeploying ? <RefreshCw className="animate-spin" size={16} /> : <span>Deploy</span>}
-                        </button>
+                         <div className="flex gap-2">
+                             <button
+                                onClick={handleDeploy}
+                                disabled={!account || isDeploying}
+                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white p-2 rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isDeploying ? <RefreshCw className="animate-spin" size={16} /> : <span>Deploy</span>}
+                            </button>
+
+                            <button
+                                onClick={handleDebug}
+                                disabled={isDebugging}
+                                className="bg-purple-600 hover:bg-purple-500 text-white p-2 rounded flex items-center justify-center transition-colors disabled:opacity-50"
+                                title="Debug with AI"
+                            >
+                                {isDebugging ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />}
+                            </button>
+                        </div>
 
                         {deployError && (
                             <div className="text-red-400 text-xs p-2 bg-red-900/20 rounded border border-red-900/50 break-words">
                                 {deployError}
+                            </div>
+                        )}
+
+                        {aiSuggestion && (
+                            <div className="text-purple-300 text-xs p-3 bg-purple-900/20 rounded border border-purple-900/50 break-words whitespace-pre-wrap">
+                                <div className="font-bold mb-1 flex items-center gap-2">
+                                    <Sparkles size={12} /> AI Suggestion
+                                </div>
+                                {aiSuggestion}
                             </div>
                         )}
                      </div>
