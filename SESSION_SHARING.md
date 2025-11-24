@@ -1,9 +1,13 @@
+# Session Sharing Configuration
 
-import { createClient } from '@supabase/supabase-js';
+To enable session sharing between `launchlayer.xyz` and its subdomains (like `Launchlets.launchlayer.xyz`), both applications must use the same Supabase client configuration.
 
-// Use environment variables if available, otherwise fallback to provided values (e.g. for testing/sandbox)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xqugncgzcuduswusxneg.supabase.co';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxdWduY2d6Y3VkdXN3dXN4bmVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1NTAyMzIsImV4cCI6MjA3NjEyNjIzMn0.RyvW9XHEJlNvJeOYX3AwqLnlykDgrNpScjrxrsGXHoc';
+## Client Configuration
+
+Use the following configuration when initializing your Supabase client. This ensures that the authentication token is stored in a cookie accessible to all subdomains, and handles large session tokens by chunking them.
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
 
 function getCookieDomain() {
   if (typeof window === 'undefined') return '';
@@ -18,11 +22,11 @@ function getSecureFlag() {
   return window.location.protocol === 'https:' ? '; Secure' : '';
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storageKey: 'sb-auth-token', // MUST match the main site
     storage: {
-      getItem: (key: string): string | null => {
+      getItem: (key) => {
         if (typeof document === 'undefined') return null;
 
         // Try reading as a single cookie first
@@ -41,7 +45,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 
         return value || null;
       },
-      setItem: (key: string, value: string): void => {
+      setItem: (key, value) => {
         if (typeof document === 'undefined') return;
 
         const domainStr = getCookieDomain();
@@ -64,7 +68,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
           }
         }
       },
-      removeItem: (key: string): void => {
+      removeItem: (key) => {
         if (typeof document === 'undefined') return;
 
         const domainStr = getCookieDomain();
@@ -83,4 +87,11 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     persistSession: true,
     autoRefreshToken: true,
   }
-});
+})
+```
+
+## Requirements
+
+1.  **Same Project**: Ensure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are the same across all apps.
+2.  **Redirect URLs**: Add `https://Launchlets.launchlayer.xyz` (and other subdomains) to the **Redirect URLs** allowlist in your Supabase Dashboard -> Authentication -> URL Configuration.
+3.  **Localhost**: When running on `localhost`, cookies will be stored as host-only (no domain attribute) and without the `Secure` flag if running on HTTP. This ensures local development works without issues.
