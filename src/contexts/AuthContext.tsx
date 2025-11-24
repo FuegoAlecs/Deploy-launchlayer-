@@ -20,7 +20,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasBetaAccess, setHasBetaAccess] = useState(false);
 
-  const checkBetaAccess = async (userId: string) => {
+  const checkBetaAccess = async (userId: string, userEmail?: string) => {
+    // Admin bypass
+    if (userEmail?.toLowerCase() === 'fuegoalecs@gmail.com') {
+      setHasBetaAccess(true);
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('beta_codes')
@@ -47,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        checkBetaAccess(session.user.id).then(() => setIsLoading(false));
+        checkBetaAccess(session.user.id, session.user.email).then(() => setIsLoading(false));
       } else {
         setIsLoading(false);
       }
@@ -60,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        checkBetaAccess(session.user.id);
+        checkBetaAccess(session.user.id, session.user.email);
       } else {
         setHasBetaAccess(false);
       }
@@ -80,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Wrapper for manual re-check (e.g. after entering code)
   const manualCheckBetaAccess = async () => {
     if (user) {
-        await checkBetaAccess(user.id);
+        await checkBetaAccess(user.id, user.email);
     }
   }
 
