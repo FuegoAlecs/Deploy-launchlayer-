@@ -1,12 +1,20 @@
 import { create } from 'zustand';
 import { ethers, BrowserProvider, JsonRpcSigner } from 'ethers';
+import { supabase } from '../lib/supabase';
 
 interface DeployedContract {
   address: string;
   name: string;
   abi: any[];
   networkId: number;
-  type: 'injected' | 'vm'; // Added type
+  type: 'injected' | 'vm' | 'launchlayer';
+}
+
+interface CloudWallet {
+    id: string;
+    name: string;
+    wallet_address: string;
+    created_at: string;
 }
 
 interface DeploymentState {
@@ -18,14 +26,24 @@ interface DeploymentState {
   isConnecting: boolean;
   error: string | null;
   deployedContracts: DeployedContract[];
-  environment: 'injected' | 'vm'; // Added environment
+  environment: 'injected' | 'vm' | 'launchlayer';
 
-  setEnvironment: (env: 'injected' | 'vm') => void; // Added setter
+  // Cloud Wallet State
+  cloudWallets: CloudWallet[];
+  isLoadingWallets: boolean;
+  selectedCloudWalletId: string | null;
+
+  setEnvironment: (env: 'injected' | 'vm' | 'launchlayer') => void;
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
   addDeployedContract: (contract: DeployedContract) => void;
   removeDeployedContract: (address: string) => void;
   refreshBalance: () => Promise<void>;
+
+  // Cloud Wallet Actions
+  fetchCloudWallets: () => Promise<void>;
+  selectCloudWallet: (walletId: string) => void;
+  setChainId: (chainId: number) => void; // For manual network selection in cloud mode
 }
 
 export const useDeployment = create<DeploymentState>((set, get) => ({
@@ -39,20 +57,72 @@ export const useDeployment = create<DeploymentState>((set, get) => ({
   deployedContracts: [],
   environment: 'injected',
 
+  cloudWallets: [],
+  isLoadingWallets: false,
+  selectedCloudWalletId: null,
+
   setEnvironment: (env) => {
       set({ environment: env });
+
       if (env === 'vm') {
-          // Setup mock VM state
           set({
-              account: '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4', // Standard Remix test account
+              account: '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4',
               balance: '100.0',
               chainId: 1337,
               provider: null,
               signer: null,
               error: null
           });
+      } else if (env === 'launchlayer') {
+          get().disconnectWallet();
+          get().fetchCloudWallets();
+          set({ chainId: 11155111 }); // Default to Sepolia
       } else {
           get().disconnectWallet();
+      }
+  },
+
+  setChainId: (chainId) => {
+      set({ chainId });
+      // TODO: In future, trigger balance refresh for cloud wallet on this chain
+  },
+
+  fetchCloudWallets: async () => {
+      set({ isLoadingWallets: true, error: null });
+      try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error("You must be logged in to use LaunchLayer Wallets.");
+
+          const { data, error } = await supabase
+              .from('dev_wallets')
+              .select('id, name, wallet_address, created_at')
+              .eq('user_id', user.id);
+
+          if (error) throw error;
+
+          set({ cloudWallets: data || [] });
+
+          // Auto-select first wallet if available
+          if (data && data.length > 0) {
+              get().selectCloudWallet(data[0].id);
+          }
+
+      } catch (err: any) {
+          console.error("Error fetching wallets:", err);
+          set({ error: err.message });
+      } finally {
+          set({ isLoadingWallets: false });
+      }
+  },
+
+  selectCloudWallet: (walletId) => {
+      const wallet = get().cloudWallets.find(w => w.id === walletId);
+      if (wallet) {
+          set({
+              selectedCloudWalletId: walletId,
+              account: wallet.wallet_address,
+              balance: '...' // We will fetch balance when we have a provider context or in the UI
+          });
       }
   },
 
@@ -103,7 +173,9 @@ export const useDeployment = create<DeploymentState>((set, get) => ({
       signer: null,
       account: null,
       chainId: null,
-      balance: '0'
+      balance: '0',
+      // Reset Cloud Wallet State too
+      selectedCloudWalletId: null
     });
   },
 
