@@ -1,18 +1,22 @@
 import React from 'react';
-import { Contract } from 'ethers';
+import { Contract, ethers } from 'ethers';
 import { ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useDeployment } from '../../store/useDeployment';
+import { useTerminal } from '../../store/useTerminal';
+import { supabase } from '../../lib/supabase';
 
 interface ContractInstanceProps {
     address: string;
     abi: any[];
     name: string;
-    type?: 'injected' | 'vm';
+    type?: 'injected' | 'vm' | 'launchlayer';
 }
 
 export function ContractInstance({ address, abi, name, type = 'injected' }: ContractInstanceProps) {
-    const { provider, signer } = useDeployment();
+    const { provider, signer, selectedCloudWalletId, chainId } = useDeployment();
+    const { addLog } = useTerminal();
+
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [contract, setContract] = React.useState<Contract | null>(null);
     const [inputs, setInputs] = React.useState<Record<string, string>>({});
@@ -24,10 +28,12 @@ export function ContractInstance({ address, abi, name, type = 'injected' }: Cont
             const instance = new Contract(address, abi, signer || provider);
             setContract(instance);
         }
-    }, [provider, signer, address, abi, type]);
+        // launchlayer calls are stateless via Edge Function or read-only provider constructed on fly
+    }, [provider, signer, address, abi, type, chainId]);
 
     const handleInteraction = async (funcName: string, funcType: 'view' | 'pure' | 'nonpayable' | 'payable', inputsArg: any[]) => {
         setIsLoading(prev => ({ ...prev, [funcName]: true }));
+        addLog(`Calling ${name}.${funcName}...`, 'info', 'Interact');
 
         try {
              // Gather args
@@ -38,29 +44,81 @@ export function ContractInstance({ address, abi, name, type = 'injected' }: Cont
                 await new Promise(resolve => setTimeout(resolve, 300));
 
                 if (funcType === 'view' || funcType === 'pure') {
-                    // Return dummy data based on return type if possible, or just a string
-                    setOutputs(prev => ({ ...prev, [funcName]: `[Simulated Result]` }));
+                    const result = `[Simulated Result]`;
+                    setOutputs(prev => ({ ...prev, [funcName]: result }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
                 } else {
-                     setOutputs(prev => ({ ...prev, [funcName]: `Tx Mined (Simulated): 0x${Math.random().toString(16).substr(2, 64)}` }));
+                     const txHash = `0x${Math.random().toString(16).substr(2, 64)}`;
+                     setOutputs(prev => ({ ...prev, [funcName]: `Tx Mined (Simulated): ${txHash}` }));
+                     addLog(`${name}.${funcName} executed: ${txHash}`, 'success', 'Interact');
                 }
+            } else if (type === 'launchlayer') {
+
+                if (funcType === 'view' || funcType === 'pure') {
+                     // Read-only call
+                     const rpcMap: Record<number, string> = {
+                        1: "https://rpc.ankr.com/eth",
+                        11155111: "https://rpc.ankr.com/eth_sepolia",
+                        8453: "https://mainnet.base.org",
+                        84532: "https://sepolia.base.org",
+                        137: "https://rpc.ankr.com/polygon"
+                    };
+                    const rpcUrl = rpcMap[chainId || 11155111] || "https://rpc.ankr.com/eth_sepolia";
+                    const readProvider = new ethers.JsonRpcProvider(rpcUrl);
+
+                    const instance = new ethers.Contract(address, abi, readProvider);
+                    const result = await instance[funcName](...args);
+                    setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
+
+                } else {
+                    // State changing tx -> Edge Function
+                    if (!selectedCloudWalletId) throw new Error("No cloud wallet selected");
+
+                    const iface = new ethers.Interface(abi);
+                    const data = iface.encodeFunctionData(funcName, args);
+
+                    const { data: resData, error } = await supabase.functions.invoke('deploy-contract', {
+                        body: {
+                            wallet_id: selectedCloudWalletId,
+                            chain_id: chainId,
+                            transaction: {
+                                to: address,
+                                data: data,
+                                value: "0" // TODO: Handle payable value input
+                            }
+                        }
+                    });
+
+                    if (error) throw error;
+                    if (!resData.success) throw new Error(resData.error);
+
+                    addLog(`Transaction signed & broadcasted: ${resData.txHash}`, 'success', 'Interact');
+                    setOutputs(prev => ({ ...prev, [funcName]: `Tx: ${resData.txHash}` }));
+                }
+
             } else {
-                // Real Interaction
+                // Injected (MetaMask)
                 if (!contract) throw new Error("Contract not connected");
 
                 let result: any;
                 if (funcType === 'view' || funcType === 'pure') {
                     result = await contract[funcName](...args);
                     setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
                 } else {
                     const tx = await contract[funcName](...args);
+                    addLog(`Tx sent: ${tx.hash}`, 'info', 'Interact');
                     setOutputs(prev => ({ ...prev, [funcName]: `Tx sent: ${tx.hash}` }));
                     await tx.wait();
+                    addLog(`Tx confirmed: ${tx.hash}`, 'success', 'Interact');
                     setOutputs(prev => ({ ...prev, [funcName]: `Confirmed: ${tx.hash}` }));
                 }
             }
         } catch (err: any) {
             console.error(err);
             setOutputs(prev => ({ ...prev, [funcName]: `Error: ${err.message}` }));
+            addLog(`Error calling ${funcName}: ${err.message}`, 'error', 'Interact');
         } finally {
             setIsLoading(prev => ({ ...prev, [funcName]: false }));
         }

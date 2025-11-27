@@ -1,7 +1,8 @@
 import React from 'react';
 import { useDeployment } from '../../store/useDeployment';
 import { useCompiler } from '../../store/useCompiler';
-import { Wallet, RefreshCw, AlertCircle, Server, Sparkles } from 'lucide-react'; // Added Server icon
+import { useTerminal } from '../../store/useTerminal';
+import { Wallet, RefreshCw, AlertCircle, Sparkles, Cloud } from 'lucide-react';
 import { ethers, ContractFactory } from 'ethers';
 import { supabase } from '../../lib/supabase';
 import { ContractInstance } from './ContractInstance';
@@ -9,9 +10,11 @@ import { ContractInstance } from './ContractInstance';
 export function DeployPanel() {
   const {
       connectWallet, disconnectWallet, account, balance, chainId, isConnecting, error,
-      deployedContracts, addDeployedContract, environment, setEnvironment
+      deployedContracts, addDeployedContract, environment, setEnvironment,
+      cloudWallets, isLoadingWallets, selectedCloudWalletId, selectCloudWallet, setChainId
   } = useDeployment();
   const { compiledContracts } = useCompiler();
+  const { addLog } = useTerminal();
 
   const [selectedContract, setSelectedContract] = React.useState<string>('');
   const [constructorArgs, setConstructorArgs] = React.useState<Record<string, string>>({});
@@ -19,6 +22,7 @@ export function DeployPanel() {
   const [deployError, setDeployError] = React.useState<string | null>(null);
   const [isDebugging, setIsDebugging] = React.useState(false);
   const [aiSuggestion, setAiSuggestion] = React.useState<string | null>(null);
+  const [gasEstimate, setGasEstimate] = React.useState<string | null>(null);
 
   // Auto-select first contract
   React.useEffect(() => {
@@ -28,34 +32,82 @@ export function DeployPanel() {
       }
   }, [compiledContracts, selectedContract]);
 
+  // Gas Estimation Hook
+  React.useEffect(() => {
+      const estimate = async () => {
+          if (!selectedContract || !account) return;
+          setGasEstimate(null);
+
+          try {
+              const contractData = compiledContracts[selectedContract];
+              // Only estimate for injected or launchlayer (if we had a provider)
+              // For launchlayer, we need a read-only provider for the selected chain.
+
+              let provider: ethers.Provider | null = null;
+
+              if (environment === 'injected' && window.ethereum) {
+                   provider = new ethers.BrowserProvider(window.ethereum);
+              } else if (environment === 'launchlayer' && chainId) {
+                   // Create a temporary read-only provider
+                   const rpcMap: Record<number, string> = {
+                        1: "https://rpc.ankr.com/eth",
+                        11155111: "https://rpc.ankr.com/eth_sepolia",
+                        5: "https://rpc.ankr.com/eth_goerli",
+                        137: "https://rpc.ankr.com/polygon",
+                        80001: "https://rpc.ankr.com/polygon_mumbai",
+                        42161: "https://arb1.arbitrum.io/rpc",
+                        10: "https://mainnet.optimism.io",
+                        8453: "https://mainnet.base.org",
+                        84532: "https://sepolia.base.org"
+                   };
+                   if (rpcMap[chainId]) {
+                       provider = new ethers.JsonRpcProvider(rpcMap[chainId]);
+                   }
+              }
+
+              if (provider) {
+                   const factory = new ContractFactory(contractData.abi, contractData.bytecode);
+                   const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
+                   const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
+                   const deployTx = await factory.getDeployTransaction(...args);
+
+                   const estimate = await provider.estimateGas({
+                       ...deployTx,
+                       from: account // Estimate as if from the user
+                   });
+
+                   // Get gas price
+                   const feeData = await provider.getFeeData();
+                   const gasPrice = feeData.gasPrice || 1000000000n; // fallback 1 gwei
+
+                   const cost = estimate * gasPrice;
+                   setGasEstimate(ethers.formatEther(cost));
+              }
+          } catch (err) {
+              // Ignore estimation errors silently (or log to debug)
+              console.log("Gas estimation failed:", err);
+          }
+      };
+
+      const timer = setTimeout(estimate, 500); // Debounce
+      return () => clearTimeout(timer);
+  }, [selectedContract, constructorArgs, account, environment, chainId]);
+
+
   const handleDebug = async () => {
     if (!selectedContract) return;
 
     setIsDebugging(true);
     setAiSuggestion(null);
+    addLog(`Starting AI Analysis for ${compiledContracts[selectedContract].name}...`, 'info', 'AI');
 
     try {
         const contractData = compiledContracts[selectedContract];
-        // Note: We might need the source code. compiledContracts structure in store might not have source code directly attached
-        // unless modified. Assuming we can get it from the file system if we know the filename, or if it's in contractData.
-        // For now, let's assume we send the ABI/Bytecode or try to find the file content.
-        // Actually, contractData likely has ABI/Bytecode. The prompt says "sends the contract to the ai".
-        // Ideally we send the source code.
-
-        // Let's rely on the user having the file selected or just send what we have.
-        // If we only have bytecode/ABI here, the AI debugging might be limited.
-        // However, usually "Debug with AI" implies source level debugging.
-        // Let's look up the file content from the store/compiler if possible.
-        // Since useCompiler stores compiledContracts, let's check its shape.
-
-        // Assuming we pass the JSON string of the contract data for now.
-
         const response = await supabase.functions.invoke('ai-review-deployment', {
             body: {
                 contractName: contractData.name,
                 abi: contractData.abi,
                 bytecode: contractData.bytecode,
-                // If possible, include source code here if we can map it back
             }
         });
 
@@ -63,11 +115,14 @@ export function DeployPanel() {
             throw new Error(response.error.message);
         }
 
-        setAiSuggestion(response.data.message || response.data.analysis || "AI Analysis Complete.");
+        const suggestion = response.data.message || response.data.analysis || "AI Analysis Complete.";
+        setAiSuggestion(suggestion);
+        addLog(`AI Analysis complete.`, 'success', 'AI');
 
     } catch (err: any) {
         console.error('AI Debug Error:', err);
         setAiSuggestion(`Error: ${err.message}`);
+        addLog(`AI Analysis failed: ${err.message}`, 'error', 'AI');
     } finally {
         setIsDebugging(false);
     }
@@ -95,30 +150,73 @@ export function DeployPanel() {
       setIsDeploying(true);
       setDeployError(null);
 
-      try {
-          const contractData = compiledContracts[selectedContract];
+      const contractData = compiledContracts[selectedContract];
+      addLog(`Initiating deployment for ${contractData.name}...`, 'info', 'Deploy');
 
-          let address: string;
+      try {
+          let address: string = '';
+
+          // Resolve args
+          const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
+          const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
 
           if (environment === 'injected') {
               const provider = new ethers.BrowserProvider(window.ethereum);
               const signer = await provider.getSigner();
-
               const factory = new ContractFactory(contractData.abi, contractData.bytecode, signer);
 
-              // Resolve args
-              const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
-              const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
-
+              addLog(`Sending transaction via MetaMask...`, 'info', 'Deploy');
               const contract = await factory.deploy(...args);
-              await contract.waitForDeployment();
 
+              // const txHash = await contract.getDeployedCode();
+              const tx = contract.deploymentTransaction();
+              if (tx) {
+                  addLog(`Transaction sent: ${tx.hash}`, 'info', 'Deploy');
+              }
+
+              await contract.waitForDeployment();
               address = await contract.getAddress();
+              addLog(`Contract deployed at: ${address}`, 'success', 'Deploy');
+
+          } else if (environment === 'launchlayer') {
+              if (!selectedCloudWalletId) throw new Error("No cloud wallet selected");
+
+              addLog(`Sending transaction via LaunchLayer Wallet...`, 'info', 'Deploy');
+
+              const factory = new ContractFactory(contractData.abi, contractData.bytecode);
+              const deployTx = await factory.getDeployTransaction(...args);
+
+              const { data, error } = await supabase.functions.invoke('deploy-contract', {
+                  body: {
+                      wallet_id: selectedCloudWalletId,
+                      chain_id: chainId,
+                      transaction: {
+                          data: deployTx.data,
+                          value: "0",
+                      }
+                  }
+              });
+
+              if (error) throw new Error(error.message);
+              if (!data.success) throw new Error(data.error || "Deployment failed");
+
+              addLog(`Transaction signed & broadcasted: ${data.txHash}`, 'success', 'Deploy');
+
+              // We have the tx hash, we need to wait for receipt
+              const rpcUrl = "https://rpc.ankr.com/eth_sepolia"; // Helper to get correct RPC
+              const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+              addLog(`Waiting for confirmation...`, 'info', 'Deploy');
+              const receipt = await provider.waitForTransaction(data.txHash);
+              address = receipt?.contractAddress || "Deployed (Address pending)";
+              addLog(`Contract deployed at: ${address}`, 'success', 'Deploy');
+
           } else {
               // VM Simulation
-              await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-              // Generate random address
+              addLog(`Simulating deployment in VM...`, 'info', 'Deploy');
+              await new Promise(resolve => setTimeout(resolve, 500));
               address = '0x' + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+              addLog(`Contract deployed at: ${address} (Simulated)`, 'success', 'Deploy');
           }
 
           addDeployedContract({
@@ -132,6 +230,7 @@ export function DeployPanel() {
       } catch (err: any) {
           console.error(err);
           setDeployError(err.message || 'Deployment failed');
+          addLog(`Deployment failed: ${err.message}`, 'error', 'Deploy');
       } finally {
           setIsDeploying(false);
       }
@@ -145,12 +244,55 @@ export function DeployPanel() {
 
             <select
                 value={environment}
-                onChange={(e) => setEnvironment(e.target.value as 'injected' | 'vm')}
+                onChange={(e) => setEnvironment(e.target.value as any)}
                 className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-slate-300 focus:border-blue-500 outline-none mb-2"
             >
                 <option value="injected">Injected Provider - MetaMask</option>
+                <option value="launchlayer">LaunchLayer Wallet (Cloud)</option>
                 <option value="vm">JavaScript VM (Simulated)</option>
             </select>
+
+            {environment === 'launchlayer' && (
+                <div className="space-y-2 mb-2">
+                     <div className="flex items-center gap-2 mb-1">
+                        <Cloud size={14} className="text-blue-400" />
+                        <span className="text-xs text-blue-400 font-bold">Cloud Wallet</span>
+                     </div>
+                     {isLoadingWallets ? (
+                         <div className="text-xs text-slate-500 flex items-center gap-2">
+                             <RefreshCw className="animate-spin" size={12} /> Loading wallets...
+                         </div>
+                     ) : cloudWallets.length > 0 ? (
+                         <select
+                            value={selectedCloudWalletId || ''}
+                            onChange={(e) => selectCloudWallet(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300"
+                         >
+                             {cloudWallets.map(w => (
+                                 <option key={w.id} value={w.id}>{w.name} - {w.wallet_address.slice(0,6)}...{w.wallet_address.slice(-4)}</option>
+                             ))}
+                         </select>
+                     ) : (
+                         <div className="text-xs text-red-400">No cloud wallets found.</div>
+                     )}
+
+                     {/* Network Selector for Cloud Mode */}
+                     <div>
+                        <label className="block text-xs text-slate-500 mb-1">Network</label>
+                        <select
+                            value={chainId || 11155111}
+                            onChange={(e) => setChainId(Number(e.target.value))}
+                            className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300"
+                        >
+                            <option value="1">Mainnet</option>
+                            <option value="11155111">Sepolia</option>
+                            <option value="8453">Base</option>
+                            <option value="84532">Base Sepolia</option>
+                            <option value="137">Polygon</option>
+                        </select>
+                     </div>
+                </div>
+            )}
 
             {environment === 'injected' && !account ? (
                 <button
@@ -174,10 +316,14 @@ export function DeployPanel() {
                             )}
                         </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Balance</span>
-                        <span className="text-slate-300">{Number(balance).toFixed(4)} ETH</span>
-                    </div>
+                    {/* Only show balance if we can fetch it. For cloud, we might not have it yet. */}
+                    {environment !== 'launchlayer' && (
+                        <div className="flex justify-between items-center">
+                            <span className="text-slate-500">Balance</span>
+                            <span className="text-slate-300">{Number(balance).toFixed(4)} ETH</span>
+                        </div>
+                    )}
+
                     <div className="flex justify-between items-center">
                         <span className="text-slate-500">Chain ID</span>
                         <div className="text-right">
@@ -187,12 +333,6 @@ export function DeployPanel() {
                             </span>
                         </div>
                     </div>
-                    {environment === 'vm' && (
-                         <div className="flex justify-end text-orange-400 flex-row items-center gap-1">
-                             <Server size={10} />
-                             <span>Simulated</span>
-                         </div>
-                    )}
                 </div>
             )}
 
@@ -216,9 +356,6 @@ export function DeployPanel() {
                              <option key={key} value={key}>{compiledContracts[key].name} - {compiledContracts[key].fileName}</option>
                          ))}
                      </select>
-                     {Object.keys(compiledContracts).length === 0 && (
-                         <p className="text-xs text-slate-500 mt-1 italic">Compile a contract to see it here.</p>
-                     )}
                  </div>
 
                  {selectedContract && compiledContracts[selectedContract] && (
@@ -233,6 +370,14 @@ export function DeployPanel() {
                                  />
                              </div>
                          ))}
+
+                         {/* Gas Estimate Display */}
+                         {gasEstimate && (
+                             <div className="text-xs text-slate-400 bg-slate-900/50 p-2 rounded flex justify-between items-center">
+                                 <span>Est. Gas Cost:</span>
+                                 <span className="text-orange-400 font-mono">~{Number(gasEstimate).toFixed(6)} ETH</span>
+                             </div>
+                         )}
 
                          <div className="flex gap-2">
                              <button
