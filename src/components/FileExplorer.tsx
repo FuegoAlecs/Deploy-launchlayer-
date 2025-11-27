@@ -74,7 +74,12 @@ export function FileExplorer() {
                 : "hover:bg-slate-800/50 text-slate-400 hover:text-slate-200"
             )}
             onClick={() => {
-                if (file.type === 'file') selectFile(file.path);
+                if (file.type === 'file') {
+                    selectFile(file.path);
+                    // Close mobile drawer if open - need access to parent state or dispatch event
+                    // For simplicity, we can dispatch a custom event that MainLayout listens to
+                    window.dispatchEvent(new CustomEvent('file-selected'));
+                }
             }}
           >
             {file.type === 'directory' ? (
