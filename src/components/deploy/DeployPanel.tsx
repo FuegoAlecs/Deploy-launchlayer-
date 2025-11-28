@@ -1,17 +1,92 @@
 import React from 'react';
 import { useDeployment } from '../../store/useDeployment';
 import { useCompiler } from '../../store/useCompiler';
-import { Wallet, RefreshCw, AlertCircle, Server, Sparkles } from 'lucide-react'; // Added Server icon
+import { useTerminal } from '../../store/useTerminal';
+import { Wallet, RefreshCw, AlertCircle, Sparkles, Cloud, Globe } from 'lucide-react';
 import { ethers, ContractFactory } from 'ethers';
 import { supabase } from '../../lib/supabase';
 import { ContractInstance } from './ContractInstance';
+import { clsx } from 'clsx';
+
+// Extended Chain definitions with Testnet/Mainnet flags
+const CHAINS = [
+    { id: 1, name: 'Ethereum Mainnet', isTestnet: false },
+    { id: 11155111, name: 'Sepolia', isTestnet: true },
+    { id: 5, name: 'Goerli', isTestnet: true },
+
+    { id: 10, name: 'Optimism Mainnet', isTestnet: false },
+    { id: 11155420, name: 'Optimism Sepolia', isTestnet: true },
+
+    { id: 42161, name: 'Arbitrum One', isTestnet: false },
+    { id: 421614, name: 'Arbitrum Sepolia', isTestnet: true },
+
+    { id: 137, name: 'Polygon Mainnet', isTestnet: false },
+    { id: 80001, name: 'Mumbai', isTestnet: true },
+
+    { id: 8453, name: 'Base Mainnet', isTestnet: false },
+    { id: 84532, name: 'Base Sepolia', isTestnet: true },
+
+    { id: 56, name: 'BSC Mainnet', isTestnet: false },
+    { id: 97, name: 'BSC Testnet', isTestnet: true },
+
+    { id: 43114, name: 'Avalanche C-Chain', isTestnet: false },
+    { id: 43113, name: 'Avalanche Fuji', isTestnet: true },
+
+    { id: 250, name: 'Fantom Opera', isTestnet: false },
+    { id: 4002, name: 'Fantom Testnet', isTestnet: true },
+
+    { id: 81457, name: 'Blast Mainnet', isTestnet: false },
+    { id: 168587773, name: 'Blast Sepolia', isTestnet: true },
+
+    { id: 59144, name: 'Linea Mainnet', isTestnet: false },
+    { id: 59141, name: 'Linea Testnet', isTestnet: true },
+
+    { id: 534352, name: 'Scroll Mainnet', isTestnet: false },
+    { id: 534351, name: 'Scroll Sepolia', isTestnet: true },
+
+    { id: 324, name: 'zkSync Era Mainnet', isTestnet: false },
+    { id: 300, name: 'zkSync Era Sepolia', isTestnet: true },
+];
+
+export const getRpcForChain = (chainId: number): string => {
+   const rpcMap: Record<number, string> = {
+        1: "https://eth.llamarpc.com",
+        11155111: "https://rpc.sepolia.org",
+        5: "https://rpc.ankr.com/eth_goerli",
+        137: "https://polygon-rpc.com",
+        80001: "https://rpc-mumbai.maticvigil.com",
+        42161: "https://arb1.arbitrum.io/rpc",
+        421614: "https://sepolia-rollup.arbitrum.io/rpc",
+        10: "https://mainnet.optimism.io",
+        11155420: "https://sepolia.optimism.io",
+        8453: "https://mainnet.base.org",
+        84532: "https://sepolia.base.org",
+        56: "https://binance.llamarpc.com",
+        97: "https://data-seed-prebsc-1-s1.binance.org:8545",
+        43114: "https://api.avax.network/ext/bc/C/rpc",
+        43113: "https://api.avax-test.network/ext/bc/C/rpc",
+        250: "https://rpc.ftm.tools",
+        4002: "https://rpc.testnet.fantom.network",
+        81457: "https://rpc.blast.io",
+        168587773: "https://sepolia.blast.io",
+        59144: "https://rpc.linea.build",
+        59141: "https://rpc.goerli.linea.build",
+        534352: "https://rpc.scroll.io",
+        534351: "https://sepolia-rpc.scroll.io",
+        324: "https://mainnet.era.zksync.io",
+        300: "https://sepolia.era.zksync.dev"
+   };
+   return rpcMap[chainId] || "https://rpc.sepolia.org";
+};
 
 export function DeployPanel() {
   const {
       connectWallet, disconnectWallet, account, balance, chainId, isConnecting, error,
-      deployedContracts, addDeployedContract, environment, setEnvironment
+      deployedContracts, addDeployedContract, environment, setEnvironment,
+      cloudWallets, isLoadingWallets, selectedCloudWalletId, selectCloudWallet, setChainId
   } = useDeployment();
   const { compiledContracts } = useCompiler();
+  const { addLog } = useTerminal();
 
   const [selectedContract, setSelectedContract] = React.useState<string>('');
   const [constructorArgs, setConstructorArgs] = React.useState<Record<string, string>>({});
@@ -19,6 +94,10 @@ export function DeployPanel() {
   const [deployError, setDeployError] = React.useState<string | null>(null);
   const [isDebugging, setIsDebugging] = React.useState(false);
   const [aiSuggestion, setAiSuggestion] = React.useState<string | null>(null);
+  const [gasEstimate, setGasEstimate] = React.useState<string | null>(null);
+
+  // New UI States
+  const [showTestnets, setShowTestnets] = React.useState(true); // Default to testnets for safety
 
   // Auto-select first contract
   React.useEffect(() => {
@@ -28,34 +107,67 @@ export function DeployPanel() {
       }
   }, [compiledContracts, selectedContract]);
 
+  // Gas Estimation Hook
+  React.useEffect(() => {
+      const estimate = async () => {
+          if (!selectedContract || !account) return;
+          setGasEstimate(null);
+
+          try {
+              const contractData = compiledContracts[selectedContract];
+
+              let provider: ethers.Provider | null = null;
+
+              if (environment === 'injected' && window.ethereum) {
+                   provider = new ethers.BrowserProvider(window.ethereum);
+              } else if (environment === 'launchlayer' && chainId) {
+                   // Map to a read-only provider for estimation
+                   const rpc = getRpcForChain(chainId);
+                   provider = new ethers.JsonRpcProvider(rpc);
+              }
+
+              if (provider) {
+                   const factory = new ContractFactory(contractData.abi, contractData.bytecode);
+                   const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
+                   const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
+                   const deployTx = await factory.getDeployTransaction(...args);
+
+                   const estimate = await provider.estimateGas({
+                       ...deployTx,
+                       from: account // Estimate as if from the user
+                   });
+
+                   // Get gas price
+                   const feeData = await provider.getFeeData();
+                   const gasPrice = feeData.gasPrice || 1000000000n; // fallback 1 gwei
+
+                   const cost = estimate * gasPrice;
+                   setGasEstimate(ethers.formatEther(cost));
+              }
+          } catch (err) {
+              console.log("Gas estimation failed:", err);
+          }
+      };
+
+      const timer = setTimeout(estimate, 500); // Debounce
+      return () => clearTimeout(timer);
+  }, [selectedContract, constructorArgs, account, environment, chainId]);
+
+
   const handleDebug = async () => {
     if (!selectedContract) return;
 
     setIsDebugging(true);
     setAiSuggestion(null);
+    addLog(`Starting AI Analysis for ${compiledContracts[selectedContract].name}...`, 'info', 'AI');
 
     try {
         const contractData = compiledContracts[selectedContract];
-        // Note: We might need the source code. compiledContracts structure in store might not have source code directly attached
-        // unless modified. Assuming we can get it from the file system if we know the filename, or if it's in contractData.
-        // For now, let's assume we send the ABI/Bytecode or try to find the file content.
-        // Actually, contractData likely has ABI/Bytecode. The prompt says "sends the contract to the ai".
-        // Ideally we send the source code.
-
-        // Let's rely on the user having the file selected or just send what we have.
-        // If we only have bytecode/ABI here, the AI debugging might be limited.
-        // However, usually "Debug with AI" implies source level debugging.
-        // Let's look up the file content from the store/compiler if possible.
-        // Since useCompiler stores compiledContracts, let's check its shape.
-
-        // Assuming we pass the JSON string of the contract data for now.
-
         const response = await supabase.functions.invoke('ai-review-deployment', {
             body: {
                 contractName: contractData.name,
                 abi: contractData.abi,
                 bytecode: contractData.bytecode,
-                // If possible, include source code here if we can map it back
             }
         });
 
@@ -63,11 +175,14 @@ export function DeployPanel() {
             throw new Error(response.error.message);
         }
 
-        setAiSuggestion(response.data.message || response.data.analysis || "AI Analysis Complete.");
+        const suggestion = response.data.message || response.data.analysis || "AI Analysis Complete.";
+        setAiSuggestion(suggestion);
+        addLog(`AI Analysis complete.`, 'success', 'AI');
 
     } catch (err: any) {
         console.error('AI Debug Error:', err);
         setAiSuggestion(`Error: ${err.message}`);
+        addLog(`AI Analysis failed: ${err.message}`, 'error', 'AI');
     } finally {
         setIsDebugging(false);
     }
@@ -75,18 +190,8 @@ export function DeployPanel() {
 
   const getNetworkName = (id: string | null) => {
     if (!id) return '';
-    const networks: Record<string, string> = {
-        '1': 'Mainnet',
-        '11155111': 'Sepolia',
-        '5': 'Goerli',
-        '8453': 'Base',
-        '84532': 'Base Sepolia',
-        '137': 'Polygon',
-        '80001': 'Mumbai',
-        '42161': 'Arbitrum One',
-        '10': 'Optimism',
-    };
-    return networks[id] || 'Unknown Network';
+    const chain = CHAINS.find(c => c.id === Number(id));
+    return chain ? chain.name : 'Unknown Network';
   };
 
   const handleDeploy = async () => {
@@ -95,30 +200,97 @@ export function DeployPanel() {
       setIsDeploying(true);
       setDeployError(null);
 
-      try {
-          const contractData = compiledContracts[selectedContract];
+      const contractData = compiledContracts[selectedContract];
+      addLog(`Initiating deployment for ${contractData.name}...`, 'info', 'Deploy');
 
-          let address: string;
+      try {
+          let address: string = '';
+
+          // Resolve args
+          const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
+          const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
 
           if (environment === 'injected') {
               const provider = new ethers.BrowserProvider(window.ethereum);
               const signer = await provider.getSigner();
-
               const factory = new ContractFactory(contractData.abi, contractData.bytecode, signer);
 
-              // Resolve args
-              const deployInputs = contractData.abi.find(item => item.type === 'constructor')?.inputs || [];
-              const args = deployInputs.map((input: any) => constructorArgs[input.name] || '');
-
+              addLog(`Sending transaction via MetaMask...`, 'info', 'Deploy');
               const contract = await factory.deploy(...args);
-              await contract.waitForDeployment();
 
+              const tx = contract.deploymentTransaction();
+              if (tx) {
+                  addLog(`Transaction sent: ${tx.hash}`, 'info', 'Deploy');
+              }
+
+              await contract.waitForDeployment();
               address = await contract.getAddress();
+              addLog(`Contract deployed at: ${address}`, 'success', 'Deploy');
+
+          } else if (environment === 'launchlayer') {
+              if (!selectedCloudWalletId) throw new Error("No cloud wallet selected");
+
+              addLog(`Preparing transaction for Cloud Wallet...`, 'info', 'Deploy');
+
+              // 1. Prepare Provider (Client Side)
+              const rpc = getRpcForChain(chainId!);
+              const provider = new ethers.JsonRpcProvider(rpc);
+
+              // 2. Prepare Transaction Data
+              const factory = new ContractFactory(contractData.abi, contractData.bytecode);
+              const deployTx = await factory.getDeployTransaction(...args);
+
+              // 3. Fetch Nonce & Gas (Client Side) - No timeouts on server!
+              const nonce = await provider.getTransactionCount(account);
+              const feeData = await provider.getFeeData();
+              const gasEstimate = await provider.estimateGas({
+                  ...deployTx,
+                  from: account
+              });
+
+              addLog(`Signing on secure server...`, 'info', 'Deploy');
+
+              // 4. Send to Server for Signing ONLY
+              const { data, error } = await supabase.functions.invoke('deploy-contract', {
+                  body: {
+                      wallet_id: selectedCloudWalletId,
+                      transaction: {
+                          to: null, // Deploying
+                          data: deployTx.data,
+                          value: "0",
+                          nonce: nonce,
+                          gasLimit: gasEstimate.toString(),
+                          gasPrice: feeData.gasPrice?.toString(),
+                          maxFeePerGas: feeData.maxFeePerGas?.toString(),
+                          maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString(),
+                          chainId: chainId,
+                          type: 2 // EIP-1559 usually safe, or let ethers handle defaults if we omited type
+                      }
+                  }
+              });
+
+              if (error) throw new Error(error.message);
+              if (!data.success) throw new Error(data.error || "Signing failed");
+
+              const signedTx = data.signedTx;
+
+              // 5. Broadcast (Client Side)
+              addLog(`Broadcasting transaction...`, 'info', 'Deploy');
+              const txResponse = await provider.broadcastTransaction(signedTx);
+
+              addLog(`Transaction broadcasted: ${txResponse.hash}`, 'success', 'Deploy');
+
+              addLog(`Waiting for confirmation...`, 'info', 'Deploy');
+              const receipt = await provider.waitForTransaction(txResponse.hash);
+              address = receipt?.contractAddress || "Deployed (Address pending)";
+              addLog(`Contract deployed at: ${address}`, 'success', 'Deploy');
+
           } else {
               // VM Simulation
-              await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-              // Generate random address
+              addLog(`Simulating deployment in VM...`, 'info', 'Deploy');
+              await new Promise(resolve => setTimeout(resolve, 500));
               address = '0x' + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+              addLog(`Contract deployed at: ${address} (Simulated)`, 'success', 'Deploy');
           }
 
           addDeployedContract({
@@ -132,6 +304,7 @@ export function DeployPanel() {
       } catch (err: any) {
           console.error(err);
           setDeployError(err.message || 'Deployment failed');
+          addLog(`Deployment failed: ${err.message}`, 'error', 'Deploy');
       } finally {
           setIsDeploying(false);
       }
@@ -145,12 +318,80 @@ export function DeployPanel() {
 
             <select
                 value={environment}
-                onChange={(e) => setEnvironment(e.target.value as 'injected' | 'vm')}
+                onChange={(e) => setEnvironment(e.target.value as any)}
                 className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-slate-300 focus:border-blue-500 outline-none mb-2"
             >
                 <option value="injected">Injected Provider - MetaMask</option>
+                <option value="launchlayer">LaunchLayer Wallet (Cloud)</option>
                 <option value="vm">JavaScript VM (Simulated)</option>
             </select>
+
+            {environment === 'launchlayer' && (
+                <div className="space-y-3 mb-2 bg-slate-900/50 p-3 rounded border border-slate-800">
+                     <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                            <Cloud size={14} className="text-blue-400" />
+                            <span className="text-xs text-blue-400 font-bold">Cloud Wallet</span>
+                        </div>
+                        {isLoadingWallets && <RefreshCw className="animate-spin text-slate-500" size={12} />}
+                     </div>
+
+                     {/* Wallet Select */}
+                     {cloudWallets.length > 0 ? (
+                         <select
+                            value={selectedCloudWalletId || ''}
+                            onChange={(e) => selectCloudWallet(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300 outline-none focus:border-blue-500"
+                         >
+                             {cloudWallets.map(w => (
+                                 <option key={w.id} value={w.id}>{w.name} - {w.wallet_address.slice(0,6)}...{w.wallet_address.slice(-4)}</option>
+                             ))}
+                         </select>
+                     ) : (
+                         <div className="text-xs text-red-400">No cloud wallets found.</div>
+                     )}
+
+                     <div className="h-px bg-slate-800 my-1" />
+
+                     {/* Network Toggle */}
+                     <div className="flex bg-slate-950 rounded p-1 border border-slate-800">
+                         <button
+                            onClick={() => { setShowTestnets(true); setChainId(11155111); }}
+                            className={clsx(
+                                "flex-1 text-xs py-1 rounded transition-colors text-center font-medium",
+                                showTestnets ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-300"
+                            )}
+                         >
+                             Testnet
+                         </button>
+                         <button
+                            onClick={() => { setShowTestnets(false); setChainId(1); }}
+                            className={clsx(
+                                "flex-1 text-xs py-1 rounded transition-colors text-center font-medium",
+                                !showTestnets ? "bg-orange-600/20 text-orange-400 border border-orange-600/50" : "text-slate-500 hover:text-slate-300"
+                            )}
+                         >
+                             Mainnet
+                         </button>
+                     </div>
+
+                     {/* Network Selector */}
+                     <div>
+                        <label className="block text-xs text-slate-500 mb-1 flex items-center gap-1">
+                            <Globe size={10} /> Network
+                        </label>
+                        <select
+                            value={chainId || (showTestnets ? 11155111 : 1)}
+                            onChange={(e) => setChainId(Number(e.target.value))}
+                            className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300 outline-none focus:border-blue-500"
+                        >
+                            {CHAINS.filter(c => c.isTestnet === showTestnets).map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                     </div>
+                </div>
+            )}
 
             {environment === 'injected' && !account ? (
                 <button
@@ -174,10 +415,13 @@ export function DeployPanel() {
                             )}
                         </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Balance</span>
-                        <span className="text-slate-300">{Number(balance).toFixed(4)} ETH</span>
-                    </div>
+                    {environment !== 'launchlayer' && (
+                        <div className="flex justify-between items-center">
+                            <span className="text-slate-500">Balance</span>
+                            <span className="text-slate-300">{Number(balance).toFixed(4)} ETH</span>
+                        </div>
+                    )}
+
                     <div className="flex justify-between items-center">
                         <span className="text-slate-500">Chain ID</span>
                         <div className="text-right">
@@ -187,12 +431,6 @@ export function DeployPanel() {
                             </span>
                         </div>
                     </div>
-                    {environment === 'vm' && (
-                         <div className="flex justify-end text-orange-400 flex-row items-center gap-1">
-                             <Server size={10} />
-                             <span>Simulated</span>
-                         </div>
-                    )}
                 </div>
             )}
 
@@ -216,9 +454,6 @@ export function DeployPanel() {
                              <option key={key} value={key}>{compiledContracts[key].name} - {compiledContracts[key].fileName}</option>
                          ))}
                      </select>
-                     {Object.keys(compiledContracts).length === 0 && (
-                         <p className="text-xs text-slate-500 mt-1 italic">Compile a contract to see it here.</p>
-                     )}
                  </div>
 
                  {selectedContract && compiledContracts[selectedContract] && (
@@ -233,6 +468,14 @@ export function DeployPanel() {
                                  />
                              </div>
                          ))}
+
+                         {/* Gas Estimate Display */}
+                         {gasEstimate && (
+                             <div className="text-xs text-slate-400 bg-slate-900/50 p-2 rounded flex justify-between items-center">
+                                 <span>Est. Gas Cost:</span>
+                                 <span className="text-orange-400 font-mono">~{Number(gasEstimate).toFixed(6)} ETH</span>
+                             </div>
+                         )}
 
                          <div className="flex gap-2">
                              <button

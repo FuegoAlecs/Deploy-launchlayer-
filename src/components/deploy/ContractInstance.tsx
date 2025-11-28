@@ -1,18 +1,23 @@
 import React from 'react';
-import { Contract } from 'ethers';
+import { Contract, ethers } from 'ethers';
 import { ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useDeployment } from '../../store/useDeployment';
+import { useTerminal } from '../../store/useTerminal';
+import { supabase } from '../../lib/supabase';
+import { getRpcForChain } from './DeployPanel';
 
 interface ContractInstanceProps {
     address: string;
     abi: any[];
     name: string;
-    type?: 'injected' | 'vm';
+    type?: 'injected' | 'vm' | 'launchlayer';
 }
 
 export function ContractInstance({ address, abi, name, type = 'injected' }: ContractInstanceProps) {
-    const { provider, signer } = useDeployment();
+    const { provider, signer, selectedCloudWalletId, chainId, account } = useDeployment();
+    const { addLog } = useTerminal();
+
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [contract, setContract] = React.useState<Contract | null>(null);
     const [inputs, setInputs] = React.useState<Record<string, string>>({});
@@ -24,10 +29,11 @@ export function ContractInstance({ address, abi, name, type = 'injected' }: Cont
             const instance = new Contract(address, abi, signer || provider);
             setContract(instance);
         }
-    }, [provider, signer, address, abi, type]);
+    }, [provider, signer, address, abi, type, chainId]);
 
     const handleInteraction = async (funcName: string, funcType: 'view' | 'pure' | 'nonpayable' | 'payable', inputsArg: any[]) => {
         setIsLoading(prev => ({ ...prev, [funcName]: true }));
+        addLog(`Calling ${name}.${funcName}...`, 'info', 'Interact');
 
         try {
              // Gather args
@@ -38,29 +44,98 @@ export function ContractInstance({ address, abi, name, type = 'injected' }: Cont
                 await new Promise(resolve => setTimeout(resolve, 300));
 
                 if (funcType === 'view' || funcType === 'pure') {
-                    // Return dummy data based on return type if possible, or just a string
-                    setOutputs(prev => ({ ...prev, [funcName]: `[Simulated Result]` }));
+                    const result = `[Simulated Result]`;
+                    setOutputs(prev => ({ ...prev, [funcName]: result }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
                 } else {
-                     setOutputs(prev => ({ ...prev, [funcName]: `Tx Mined (Simulated): 0x${Math.random().toString(16).substr(2, 64)}` }));
+                     const txHash = `0x${Math.random().toString(16).substr(2, 64)}`;
+                     setOutputs(prev => ({ ...prev, [funcName]: `Tx Mined (Simulated): ${txHash}` }));
+                     addLog(`${name}.${funcName} executed: ${txHash}`, 'success', 'Interact');
                 }
+            } else if (type === 'launchlayer') {
+
+                const rpc = getRpcForChain(chainId!);
+                const provider = new ethers.JsonRpcProvider(rpc);
+
+                if (funcType === 'view' || funcType === 'pure') {
+                     // Read-only call
+                    const instance = new ethers.Contract(address, abi, provider);
+                    const result = await instance[funcName](...args);
+                    setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
+
+                } else {
+                    // State changing tx -> Client Prepare -> Server Sign -> Client Broadcast
+                    if (!selectedCloudWalletId) throw new Error("No cloud wallet selected");
+
+                    const iface = new ethers.Interface(abi);
+                    const data = iface.encodeFunctionData(funcName, args);
+
+                    // Fetch current nonce & gas
+                    const nonce = await provider.getTransactionCount(account!);
+                    const feeData = await provider.getFeeData();
+
+                    // Estimate Gas
+                    const txForEst = {
+                        to: address,
+                        data: data,
+                        value: "0",
+                        from: account
+                    };
+                    const gasLimit = await provider.estimateGas(txForEst);
+
+                    // Call Signing Service
+                    const { data: resData, error } = await supabase.functions.invoke('deploy-contract', {
+                        body: {
+                            wallet_id: selectedCloudWalletId,
+                            transaction: {
+                                to: address,
+                                data: data,
+                                value: "0", // TODO: Handle payable
+                                nonce: nonce,
+                                gasLimit: gasLimit.toString(),
+                                gasPrice: feeData.gasPrice?.toString(),
+                                maxFeePerGas: feeData.maxFeePerGas?.toString(),
+                                maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString(),
+                                chainId: chainId,
+                                type: 2
+                            }
+                        }
+                    });
+
+                    if (error) throw error;
+                    if (!resData.success) throw new Error(resData.error);
+
+                    addLog(`Transaction signed: ${resData.signedTx.slice(0, 10)}...`, 'info', 'Interact');
+
+                    // Broadcast
+                    const txResponse = await provider.broadcastTransaction(resData.signedTx);
+                    addLog(`Transaction broadcasted: ${txResponse.hash}`, 'success', 'Interact');
+                    setOutputs(prev => ({ ...prev, [funcName]: `Tx: ${txResponse.hash}` }));
+                }
+
             } else {
-                // Real Interaction
+                // Injected (MetaMask)
                 if (!contract) throw new Error("Contract not connected");
 
                 let result: any;
                 if (funcType === 'view' || funcType === 'pure') {
                     result = await contract[funcName](...args);
                     setOutputs(prev => ({ ...prev, [funcName]: result.toString() }));
+                    addLog(`${name}.${funcName} returned: ${result}`, 'success', 'Interact');
                 } else {
                     const tx = await contract[funcName](...args);
+                    addLog(`Tx sent: ${tx.hash}`, 'info', 'Interact');
                     setOutputs(prev => ({ ...prev, [funcName]: `Tx sent: ${tx.hash}` }));
                     await tx.wait();
+                    addLog(`Tx confirmed: ${tx.hash}`, 'success', 'Interact');
                     setOutputs(prev => ({ ...prev, [funcName]: `Confirmed: ${tx.hash}` }));
                 }
             }
         } catch (err: any) {
             console.error(err);
             setOutputs(prev => ({ ...prev, [funcName]: `Error: ${err.message}` }));
+            addLog(`Error calling ${funcName}: ${err.message}`, 'error', 'Interact');
         } finally {
             setIsLoading(prev => ({ ...prev, [funcName]: false }));
         }
