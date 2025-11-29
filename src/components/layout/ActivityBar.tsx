@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
-import { Files, Search, Box, PlayCircle, Github, ShieldAlert, Settings, ArrowLeftCircle } from 'lucide-react';
+import { Files, Search, Box, PlayCircle, Github, ShieldAlert, Settings, ArrowLeftCircle, Terminal, Wrench } from 'lucide-react';
+import { useTerminal } from '../../store/useTerminal';
 
 interface ActivityBarProps {
   activeView: string;
@@ -7,11 +8,14 @@ interface ActivityBarProps {
 }
 
 export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
+  const { toggleTerminal, isOpen } = useTerminal();
+
   const items = [
     { id: 'explorer', icon: Files, label: 'Explorer' },
     { id: 'search', icon: Search, label: 'Search' },
     { id: 'compiler', icon: Box, label: 'Compiler' },
     { id: 'deploy', icon: PlayCircle, label: 'Deploy & Run' },
+    { id: 'tools', icon: Wrench, label: 'DevTools' }, // Added DevTools
     { id: 'github', icon: Github, label: 'GitHub' },
     { id: 'analysis', icon: ShieldAlert, label: 'Static Analysis' },
     { id: 'settings', icon: Settings, label: 'Settings' },
@@ -33,7 +37,6 @@ export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
               title={item.label}
             >
               <item.icon size={24} strokeWidth={1.5} />
-              {/* Tooltip for desktop */}
               <span className="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 hidden md:block border border-slate-700">
                 {item.label}
               </span>
@@ -41,8 +44,22 @@ export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
           ))}
       </div>
 
-      {/* Back to LaunchLayer Button at Bottom */}
-      <div className="pb-4">
+      <div className="pb-4 flex flex-col items-center gap-2">
+          {/* Toggle Terminal Button */}
+          <button
+            onClick={() => toggleTerminal()}
+            className={clsx(
+                "p-3 rounded-xl transition-all duration-200 group relative",
+                isOpen ? "text-blue-400 bg-blue-600/10" : "text-slate-500 hover:text-white hover:bg-slate-800/50"
+            )}
+            title="Toggle Terminal"
+          >
+            <Terminal size={24} strokeWidth={1.5} />
+            <span className="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 hidden md:block border border-slate-700">
+                Toggle Terminal
+            </span>
+          </button>
+
           <a
             href="https://launchlayer.xyz"
             className="p-3 rounded-xl transition-all duration-200 group relative text-slate-500 hover:text-white hover:bg-slate-800/50 block"

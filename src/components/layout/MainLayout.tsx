@@ -7,6 +7,9 @@ import { GitHubPlugin } from '../plugins/GitHubPlugin';
 // import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
 import { LinterPanel } from '../plugins/LinterPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
+import { SearchPanel } from '../SearchPanel';
+import { DevToolsPanel } from '../tools/DevToolsPanel'; // Import DevTools
+import { Terminal } from './Terminal';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -27,8 +30,10 @@ export function MainLayout({ children }: MainLayoutProps) {
   const renderSidePanel = () => {
       switch (activeView) {
           case 'explorer': return <FileExplorer />;
+          case 'search': return <SearchPanel />;
           case 'compiler': return <CompilerPanel />;
           case 'deploy': return <DeployPanel />;
+          case 'tools': return <DevToolsPanel />; // Added
           case 'github': return <GitHubPlugin />;
           case 'analysis': return <LinterPanel />;
           case 'settings': return <SettingsPanel />;
@@ -41,7 +46,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-[100dvh] bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* Activity Bar - Sidebar */}
       <div className="hidden md:block h-full">
         <ActivityBar activeView={activeView} onViewChange={setActiveView} />
@@ -56,10 +61,10 @@ export function MainLayout({ children }: MainLayoutProps) {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative min-w-0">
 
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md">
+        <div className="md:hidden flex items-center justify-between p-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md shrink-0">
             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-400">
                 {isMobileMenuOpen ? <X /> : <Menu />}
             </button>
@@ -80,20 +85,13 @@ export function MainLayout({ children }: MainLayoutProps) {
         )}
 
         {/* Editor Area */}
-        <main className="flex-1 relative bg-slate-950/50">
+        <main className="flex-1 relative bg-slate-950/50 overflow-auto">
             {children}
         </main>
 
-        {/* Bottom Panel (Terminal) */}
-        <div className="h-48 border-t border-slate-800 bg-slate-900/90 glass-panel hidden md:block">
-            <div className="flex items-center gap-4 px-4 py-2 border-b border-slate-800/50 text-xs font-medium text-slate-400">
-                <button className="hover:text-blue-400 transition-colors">Terminal</button>
-                <button className="hover:text-blue-400 transition-colors">Output</button>
-            </div>
-            <div className="p-4 font-mono text-sm text-slate-400 h-full overflow-auto">
-                <p className="text-green-400">➜  Ready.</p>
-                <p className="text-slate-500 mt-2">Welcome to Launchlets. Select a file to start editing.</p>
-            </div>
+        {/* Bottom Panel (Terminal) - Visible on Mobile & Desktop */}
+        <div className="z-30 shrink-0">
+            <Terminal />
         </div>
       </div>
 
