@@ -7,6 +7,8 @@ import { GitHubPlugin } from '../plugins/GitHubPlugin';
 // import { StaticAnalysisPlugin } from '../plugins/StaticAnalysisPlugin';
 import { LinterPanel } from '../plugins/LinterPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
+import { SearchPanel } from '../SearchPanel';
+import { Terminal } from './Terminal';
 import { clsx } from 'clsx';
 import { Menu, X } from 'lucide-react';
 
@@ -27,6 +29,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const renderSidePanel = () => {
       switch (activeView) {
           case 'explorer': return <FileExplorer />;
+          case 'search': return <SearchPanel />;
           case 'compiler': return <CompilerPanel />;
           case 'deploy': return <DeployPanel />;
           case 'github': return <GitHubPlugin />;
@@ -80,20 +83,13 @@ export function MainLayout({ children }: MainLayoutProps) {
         )}
 
         {/* Editor Area */}
-        <main className="flex-1 relative bg-slate-950/50">
+        <main className="flex-1 relative bg-slate-950/50 overflow-auto">
             {children}
         </main>
 
         {/* Bottom Panel (Terminal) */}
-        <div className="h-48 border-t border-slate-800 bg-slate-900/90 glass-panel hidden md:block">
-            <div className="flex items-center gap-4 px-4 py-2 border-b border-slate-800/50 text-xs font-medium text-slate-400">
-                <button className="hover:text-blue-400 transition-colors">Terminal</button>
-                <button className="hover:text-blue-400 transition-colors">Output</button>
-            </div>
-            <div className="p-4 font-mono text-sm text-slate-400 h-full overflow-auto">
-                <p className="text-green-400">➜  Ready.</p>
-                <p className="text-slate-500 mt-2">Welcome to Launchlets. Select a file to start editing.</p>
-            </div>
+        <div className="hidden md:block z-20">
+            <Terminal />
         </div>
       </div>
 

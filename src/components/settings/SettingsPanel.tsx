@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { LogOut, User, ShieldCheck, ExternalLink } from 'lucide-react';
 
 export function SettingsPanel() {
-  const { user, hasBetaAccess, signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   return (
     <div className="h-full p-6 overflow-auto">
@@ -27,7 +27,7 @@ export function SettingsPanel() {
 
           <div className="flex items-center gap-2 text-green-400 bg-green-400/10 px-3 py-2 rounded-lg w-fit mb-4">
              <ShieldCheck size={16} />
-             <span className="text-sm font-medium">{hasBetaAccess ? 'Beta Access Active' : 'No Access'}</span>
+             <span className="text-sm font-medium">Early Access Member</span>
           </div>
 
           <button
